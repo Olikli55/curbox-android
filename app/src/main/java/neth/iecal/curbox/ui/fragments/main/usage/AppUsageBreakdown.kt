@@ -30,7 +30,7 @@ import neth.iecal.curbox.ui.fragments.main.reducers.blockertools.appBlocker.Crea
 import neth.iecal.curbox.ui.fragments.main.reducers.anti_stimulants.grayscale.CreateGrayscaleGroupFragment
 import neth.iecal.curbox.utils.TimeTools
 
-class AppUsageBreakdown(private val stat: AllAppsUsageFragment.Stat) : Fragment() {
+class AppUsageBreakdown(private val stat: AppUsageStat) : Fragment() {
 
     private lateinit var binding: FragmentAppUsageBreakdownBinding
     private val viewModel: SetupShortcutViewModel by viewModels()

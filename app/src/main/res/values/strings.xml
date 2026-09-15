@@ -218,6 +218,11 @@
     <string name="activity_powered_by">POWERED BY CURBOX</string>
     <string name="your_digital_wellbeing">Your Digital Well-being</string>
     <string name="total_today">TOTAL TODAY</string>
+    <string name="total_this_week">TOTAL THIS WEEK</string>
+    <string name="total_for_period">TOTAL · %1$s</string>
+    <string name="usage_date_range">%1$s to %2$s</string>
+    <string name="usage_daily_chart_description">Daily app usage chart</string>
+    <string name="usage_weekly_chart_description">Weekly app usage chart</string>
     <string name="most_used">MOST USED</string>
     <string name="crunching_numbers">Crunching numbers...</string>
     <string name="usage_welcome_title">Hello dear user</string>
@@ -530,6 +535,8 @@
     <string name="hint_add_website">Add website or keyword</string>
     <string name="desc_previous_week">Previous week</string>
     <string name="desc_next_week">Next week</string>
+    <string name="desc_earlier_weeks">Earlier weeks</string>
+    <string name="desc_later_weeks">Later weeks</string>
     <string name="desc_edit_group">Edit group</string>
     <string name="desc_delete_group">Delete group</string>
     <string name="desc_refresh_stats">Refresh stats</string>

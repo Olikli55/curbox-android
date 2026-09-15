@@ -41,8 +41,8 @@ class ReelCounterViewModel(application: Application) : AndroidViewModel(applicat
     private val _weekRangeLabel = MutableLiveData<String>()
     val weekRangeLabel: LiveData<String> = _weekRangeLabel
 
-    private val _weeklyData = MutableLiveData<List<WeeklyBarGraphView.DayData>>()
-    val weeklyData: LiveData<List<WeeklyBarGraphView.DayData>> = _weeklyData
+    private val _weeklyData = MutableLiveData<List<WeeklyBarGraphView.BarData>>()
+    val weeklyData: LiveData<List<WeeklyBarGraphView.BarData>> = _weeklyData
 
     private val _selectedDayIndex = MutableLiveData(6)
     val selectedDayIndex: LiveData<Int> = _selectedDayIndex
@@ -126,7 +126,7 @@ class ReelCounterViewModel(application: Application) : AndroidViewModel(applicat
             _weekRangeLabel.value = "$startLabel – $endLabel"
         }
 
-        val dayDataList = mutableListOf<WeeklyBarGraphView.DayData>()
+        val dayDataList = mutableListOf<WeeklyBarGraphView.BarData>()
         val dayLabels = listOf("M", "T", "W", "T", "F", "S", "S")
 
         var todayIndex = -1
@@ -143,7 +143,7 @@ class ReelCounterViewModel(application: Application) : AndroidViewModel(applicat
             }
 
             val dateMillis = date.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            dayDataList.add(WeeklyBarGraphView.DayData(dayLabels[i], count.toFloat(), dateMillis))
+            dayDataList.add(WeeklyBarGraphView.BarData(dayLabels[i], count.toFloat(), dateMillis))
         }
 
         val defaultSelected = if (isCurrentWeek && todayIndex >= 0) todayIndex else 6

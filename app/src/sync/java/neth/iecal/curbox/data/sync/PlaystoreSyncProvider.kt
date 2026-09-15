@@ -424,6 +424,22 @@ class PlaystoreSyncProvider(private val context: Context) : SyncProvider {
         }
     }
 
+    override suspend fun remoteUsageForDates(
+        dateIsos: Set<String>
+    ): Map<String, RemoteUsageTotals> = withContext(Dispatchers.IO) {
+        if (!entitled || !keys.syncUsageStats || session == null || dek == null) {
+            emptyMap()
+        } else {
+            val store = RemoteUsageStore(context)
+            dateIsos.associateWith { date ->
+                RemoteUsageTotals(
+                    apps = store.appTotals(date, keys.usageDeviceIds),
+                    websites = store.websiteTotals(date, keys.usageDeviceIds)
+                )
+            }
+        }
+    }
+
     override suspend fun pushNow() = withContext(Dispatchers.IO) {
         ensureStarted()
         if (session == null || dek == null || !entitled) return@withContext

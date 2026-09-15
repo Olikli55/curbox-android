@@ -8,18 +8,21 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import neth.iecal.curbox.R
 import neth.iecal.curbox.ui.views.WeeklyBarGraphView
 import neth.iecal.curbox.utils.UsageStatsHelper
 import neth.iecal.curbox.utils.getDefaultLauncherPackageName
 import java.util.concurrent.ConcurrentHashMap
-import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.time.temporal.TemporalAdjusters
 import neth.iecal.curbox.data.db.WebsiteStatsEntity
 import neth.iecal.curbox.data.db.ReelUsageStatsEntity
 import neth.iecal.curbox.data.db.AppDatabase
@@ -44,8 +47,22 @@ class AllAppsUsageViewModel(application: Application) : AndroidViewModel(applica
 
     val ignoredPackages: MutableSet<String> = mutableSetOf()
 
-    private val dayStatsCache = ConcurrentHashMap<LocalDate, List<AllAppsUsageFragment.Stat>>()
+    private val dayUsageCache = ConcurrentHashMap<LocalDate, DayUsageSource>()
     private val appMetadataCache = ConcurrentHashMap<String, AppMetadata>()
+
+    private data class DayUsageSource(
+        val localApps: List<AppUsageStat>,
+        val remoteApps: Map<String, Long>,
+        val websites: List<WebsiteStatsEntity>,
+        val remoteWebsites: Map<String, Long>,
+        val reels: List<ReelUsageStatsEntity>
+    )
+
+    private data class DayUsage(
+        val apps: List<AppUsageStat>,
+        val websites: List<WebsiteStatsEntity>,
+        val reels: List<ReelUsageStatsEntity>
+    )
 
     data class AppMetadata(
         val label: CharSequence,
@@ -59,39 +76,29 @@ class AllAppsUsageViewModel(application: Application) : AndroidViewModel(applica
     private val _isLoading = MutableLiveData(false)
     val isLoading: LiveData<Boolean> = _isLoading
 
-    // Current week offset: 0 = current week, -1 = last week, etc.
-    private val _weekOffset = MutableLiveData(0)
-    val weekOffset: LiveData<Int> = _weekOffset
+    private var anchorWeekOffset = 0
+    private var currentScale = AppUsageChartScale.DAYS
+    private var displayedPeriods: List<AppUsagePeriod> = emptyList()
+    private var chartLoadJob: Job? = null
+    private var selectionLoadJob: Job? = null
 
-    // Week range label like "Mar 10 – Mar 16"
-    private val _weekRangeLabel = MutableLiveData<String>()
-    val weekRangeLabel: LiveData<String> = _weekRangeLabel
+    private val _chartScale = MutableLiveData(currentScale)
+    val chartScale: LiveData<AppUsageChartScale> = _chartScale
 
-    // Weekly bar data (7 entries)
-    private val _weeklyData = MutableLiveData<List<WeeklyBarGraphView.DayData>>()
-    val weeklyData: LiveData<List<WeeklyBarGraphView.DayData>> = _weeklyData
+    private val _isChartTransitioning = MutableLiveData(false)
+    val isChartTransitioning: LiveData<Boolean> = _isChartTransitioning
 
-    // Selected day index within the week (0-6)
-    private val _selectedDayIndex = MutableLiveData(6) // default to last day (Sunday) or today
-    val selectedDayIndex: LiveData<Int> = _selectedDayIndex
+    private val _chartRangeLabel = MutableLiveData<String>()
+    val chartRangeLabel: LiveData<String> = _chartRangeLabel
 
-    // Stats for the selected day
-    private val _selectedDayStats = MutableLiveData<List<AllAppsUsageFragment.Stat>>()
-    val selectedDayStats: LiveData<List<AllAppsUsageFragment.Stat>> = _selectedDayStats
+    private val _chartData = MutableLiveData<List<WeeklyBarGraphView.BarData>>()
+    val chartData: LiveData<List<WeeklyBarGraphView.BarData>> = _chartData
 
-    private val _selectedDayWebsiteStats = MutableLiveData<List<WebsiteStatsEntity>>()
-    val selectedDayWebsiteStats: LiveData<List<WebsiteStatsEntity>> = _selectedDayWebsiteStats
+    private val _selectedPeriodIndex = MutableLiveData(6)
+    val selectedPeriodIndex: LiveData<Int> = _selectedPeriodIndex
 
-    private val _selectedDayReelUsageStats = MutableLiveData<List<ReelUsageStatsEntity>>()
-    val selectedDayReelUsageStats: LiveData<List<ReelUsageStatsEntity>> = _selectedDayReelUsageStats
-
-    // Total usage time in millis for selected day
-    private val _totalTime = MutableLiveData<Long>(0L)
-    val totalTime: LiveData<Long> = _totalTime
-
-    // Date sublabel ("TOTAL TODAY" or "TOTAL · Mar 15")
-    private val _dateSublabel = MutableLiveData("TOTAL TODAY")
-    val dateSublabel: LiveData<String> = _dateSublabel
+    private val _selectedPeriodAnalytics = MutableLiveData<AppUsageAnalytics>()
+    val selectedPeriodAnalytics: LiveData<AppUsageAnalytics> = _selectedPeriodAnalytics
 
     // Can navigate forward?
     private val _canGoNext = MutableLiveData(false)
@@ -108,13 +115,13 @@ class AllAppsUsageViewModel(application: Application) : AndroidViewModel(applica
     fun initialize() {
         if (hasLoadedOnce) return
         hasLoadedOnce = true
-        viewModelScope.launch(Dispatchers.IO) {
+        chartLoadJob = viewModelScope.launch(Dispatchers.IO) {
             getDefaultLauncherPackageName(getApplication<Application>().packageManager)?.let {
                 ignoredPackages.add(it)
             }
             val datastore = DataStoreManager(getApplication())
             ignoredPackages.addAll(datastore.settings.first().usageTrackerIgnoredApps)
-            loadWeekData()
+            loadChartData()
             refreshSyncedUsage()
         }
     }
@@ -125,213 +132,273 @@ class AllAppsUsageViewModel(application: Application) : AndroidViewModel(applica
     private suspend fun refreshSyncedUsage() {
         val provider = neth.iecal.curbox.data.sync.SyncGateway.provider
         if (!provider.isAvailable) return
-        runCatching { provider.refresh() }
-        loadWeekData()
+        refreshProvider(provider)
+        dayUsageCache.clear()
+        loadChartData()
     }
 
-    fun goToPreviousWeek() {
-        _weekOffset.value = (_weekOffset.value ?: 0) - 1
-        viewModelScope.launch(Dispatchers.IO) {
-            loadWeekData()
-        }
+    fun goToPreviousPeriod() {
+        anchorWeekOffset -= AppUsageChartTimeline.navigationStep(currentScale)
+        requestChartLoad()
     }
 
-    fun goToNextWeek() {
-        val current = _weekOffset.value ?: 0
-        if (current < 0) {
-            _weekOffset.value = current + 1
-            viewModelScope.launch(Dispatchers.IO) {
-                loadWeekData()
+    fun goToNextPeriod() {
+        if (anchorWeekOffset >= 0) return
+        anchorWeekOffset = (anchorWeekOffset + AppUsageChartTimeline.navigationStep(currentScale))
+            .coerceAtMost(0)
+        requestChartLoad()
+    }
+
+    fun setChartScale(scale: AppUsageChartScale) {
+        if (scale == currentScale) return
+        if (scale == AppUsageChartScale.DAYS && currentScale == AppUsageChartScale.WEEKS) {
+            displayedPeriods.getOrNull(_selectedPeriodIndex.value ?: -1)?.let { selectedPeriod ->
+                anchorWeekOffset = AppUsageChartTimeline.weekOffsetFor(selectedPeriod, LocalDate.now())
             }
         }
+        currentScale = scale
+        _chartScale.value = scale
+        _isChartTransitioning.value = true
+        requestChartLoad()
     }
 
-    fun selectDay(index: Int) {
-        _selectedDayIndex.value = index
-        viewModelScope.launch(Dispatchers.IO) {
+    fun selectPeriod(index: Int) {
+        val period = displayedPeriods.getOrNull(index) ?: return
+        _selectedPeriodIndex.value = index
+        selectionLoadJob?.cancel()
+        selectionLoadJob = viewModelScope.launch(Dispatchers.IO) {
             withContext(Dispatchers.Main) { _isLoading.value = true }
-            val weekStart = getWeekStart(_weekOffset.value ?: 0)
-            val selectedDate = weekStart.plusDays(index.toLong())
-            loadDayStats(selectedDate)
+            loadPeriodStats(period)
             withContext(Dispatchers.Main) { _isLoading.value = false }
         }
     }
 
     fun reload() {
-        viewModelScope.launch(Dispatchers.IO) {
-            loadWeekData()
-        }
+        if (_chartData.value == null && chartLoadJob?.isActive == true) return
+        dayUsageCache.remove(LocalDate.now())
+        requestChartLoad()
     }
 
     // A user asked refresh: drop the cached day stats so the system's freshest
     // usage is read again, pull the latest usage from other devices, then reload.
     // Unlike reload() this always shows the loading overlay so the tap has visible feedback.
     fun refresh() {
-        viewModelScope.launch(Dispatchers.IO) {
+        chartLoadJob?.cancel()
+        selectionLoadJob?.cancel()
+        chartLoadJob = viewModelScope.launch(Dispatchers.IO) {
             withContext(Dispatchers.Main) { _isLoading.value = true }
-            dayStatsCache.clear()
+            dayUsageCache.clear()
             val provider = neth.iecal.curbox.data.sync.SyncGateway.provider
-            if (provider.isAvailable) runCatching { provider.refresh() }
-            loadWeekData()
+            if (provider.isAvailable) refreshProvider(provider)
+            loadChartData()
             withContext(Dispatchers.Main) { _isLoading.value = false }
         }
     }
 
-    private suspend fun loadWeekData() {
+    private fun requestChartLoad() {
+        chartLoadJob?.cancel()
+        selectionLoadJob?.cancel()
+        if (_isLoading.value == true) _isLoading.value = false
+        chartLoadJob = viewModelScope.launch(Dispatchers.IO) { loadChartData() }
+    }
+
+    private suspend fun loadChartData() {
         // Only show the full-screen loading overlay when there's nothing on
         // screen yet. Reloads triggered by revisiting this screen (returning
         // from AppUsageBreakdown, resuming the app) already have data to show
         // while they refresh in the background, so flashing the overlay for
         // those is just an annoying flicker rather than useful feedback.
-        val silent = _selectedDayStats.value != null
+        val silent = _selectedPeriodAnalytics.value != null
         if (!silent) withContext(Dispatchers.Main) { _isLoading.value = true }
 
-        val offset = withContext(Dispatchers.Main) { _weekOffset.value ?: 0 }
-        val weekStart = getWeekStart(offset)
-        val weekEnd = weekStart.plusDays(6)
-
         val today = LocalDate.now()
-        val isCurrentWeek = offset == 0
+        val request = withContext(Dispatchers.Main) {
+            currentScale to anchorWeekOffset
+        }
+        val periods = AppUsageChartTimeline.periods(
+            scale = request.first,
+            anchorWeekStart = AppUsageChartTimeline.weekStart(today, request.second)
+        )
+        val defaultSelected = AppUsageChartTimeline.defaultSelectedIndex(periods, today)
+        primeDayUsageCache(periods.flatMap { datesIn(it, today) })
 
         withContext(Dispatchers.Main) {
-            _canGoNext.value = offset < 0
-
-            val startLabel = weekStart.format(dayLabelFormatter)
-            val endLabel = weekEnd.format(dayLabelFormatter)
-            _weekRangeLabel.value = "$startLabel – $endLabel"
+            _canGoNext.value = request.second < 0
+            _chartRangeLabel.value = formatRange(periods.first().start, periods.last().endInclusive)
         }
 
-        val dayDataList = mutableListOf<WeeklyBarGraphView.DayData>()
-        val dayLabels = listOf("M", "T", "W", "T", "F", "S", "S")
-
-        var todayIndex = -1
-
-        for (i in 0..6) {
-            val date = weekStart.plusDays(i.toLong())
-            val isFuture = date.isAfter(today)
-
-            val totalTimeMs = if (isFuture) {
-                0L
-            } else {
-                totalTimeForDay(date)
-            }
-
-            val hours = totalTimeMs / (1000f * 60f * 60f)
-            val dateMillis = date.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-
-            dayDataList.add(WeeklyBarGraphView.DayData(dayLabels[i], hours, dateMillis))
-
-            if (date == today) todayIndex = i
+        val chartEntries = periods.map { period ->
+            val totalTime = if (period.start.isAfter(today)) 0L else totalTimeForPeriod(period, today)
+            WeeklyBarGraphView.BarData(
+                label = period.label,
+                value = totalTime / MILLIS_PER_HOUR,
+                dateMillis = period.start.atStartOfDay(ZoneId.systemDefault())
+                    .toInstant().toEpochMilli()
+            )
         }
-
-        // Choose the selected day: today if in this week, else last day of the week
-        val defaultSelected = if (isCurrentWeek && todayIndex >= 0) todayIndex else 6
 
         withContext(Dispatchers.Main) {
-            _weeklyData.value = dayDataList
-            _selectedDayIndex.value = defaultSelected
+            displayedPeriods = periods
+            _chartData.value = chartEntries
+            _selectedPeriodIndex.value = defaultSelected
         }
 
-        // Load stats for the selected day
-        val selectedDate = weekStart.plusDays(defaultSelected.toLong())
-        loadDayStats(selectedDate)
+        loadPeriodStats(periods[defaultSelected])
 
-        if (!silent) withContext(Dispatchers.Main) { _isLoading.value = false }
+        withContext(Dispatchers.Main) {
+            if (_isLoading.value == true) _isLoading.value = false
+            _isChartTransitioning.value = false
+        }
     }
 
-    private suspend fun loadDayStats(date: LocalDate) {
-        // Fold in app usage synced from the user's other Android devices, summed
-        // per app so each row shows combined time across every device. Empty on
-        // F-Droid and when nothing has synced.
-        val remoteApps = remoteAppTotals(date)
-        val stats = getFilteredStatsForDay(date)
-        val appStats = if (remoteApps.isEmpty()) stats else mergeRemoteApps(stats, remoteApps)
-
-        preloadAppMetadata(appStats.map { it.packageName })
+    private suspend fun loadPeriodStats(period: AppUsagePeriod) {
         val today = LocalDate.now()
-        val isToday = date == today
+        val days = datesIn(period, today).map { usageForDay(it) }
+        val appStats = AppUsageAggregator.appStats(days.map { it.apps })
+        val websiteStats = AppUsageAggregator.websiteStats(days.map { it.websites })
+        val reelStats = AppUsageAggregator.reelStats(days.map { it.reels })
+        preloadAppMetadata(appStats.map { it.packageName })
 
-        val sublabel = if (isToday) {
-            "TOTAL TODAY"
-        } else {
-            "TOTAL · ${date.format(dayLabelFormatter)}"
+        val sublabel = when {
+            period.start == today && period.endInclusive == today ->
+                getApplication<Application>().getString(R.string.total_today)
+            currentScale == AppUsageChartScale.WEEKS && today in period.start..period.endInclusive ->
+                getApplication<Application>().getString(R.string.total_this_week)
+            else -> getApplication<Application>().getString(
+                R.string.total_for_period,
+                formatRange(period.start, period.endInclusive)
+            )
         }
 
-        val dateString = neth.iecal.curbox.utils.TimeTools.dayKey(date)
-        val websiteStats = websiteStatsDao.getStatsForDate(dateString).filter { it.isWebsite() }
-        val reelUsageStats = reelUsageStatsDao.getForDate(dateString)
+        withContext(Dispatchers.Main) {
+            _selectedPeriodAnalytics.value = AppUsageAnalytics(
+                apps = appStats,
+                websites = websiteStats,
+                reels = reelStats,
+                totalTime = appStats.sumOf { it.totalTime },
+                totalLabel = sublabel
+            )
+        }
+    }
 
-        // Fold in website usage synced from other devices (e.g. the browser
-        // extension) as a single "Synced browsing" row. Empty on F-Droid.
-        val remote = remoteWebsiteTotals(date)
+    private suspend fun totalTimeForPeriod(period: AppUsagePeriod, today: LocalDate): Long {
+        return datesIn(period, today).sumOf { date ->
+            usageForDay(date).apps.sumOf { it.totalTime }
+        }
+    }
 
-        var statsOut = appStats.sortedByDescending { it.totalTime }
-        var websiteOut = websiteStats
-        if (remote.isNotEmpty()) {
-            val syncedWebsites = remote.map { (domain, ms) ->
+    private suspend fun usageForDay(date: LocalDate): DayUsage {
+        val source = sourceForDay(date)
+        val localApps = source.localApps.filter {
+            it.totalTime >= 1_000 && it.packageName !in ignoredPackages
+        }
+        var apps = mergeRemoteApps(localApps, source.remoteApps)
+        var websites = source.websites.filter { it.isWebsite() }
+
+        if (source.remoteWebsites.isNotEmpty()) {
+            val dateString = neth.iecal.curbox.utils.TimeTools.dayKey(date)
+            websites = websites + source.remoteWebsites.map { (domain, duration) ->
                 WebsiteStatsEntity(
                     date = dateString,
                     packageName = neth.iecal.curbox.data.sync.SYNCED_WEB_PACKAGE,
                     urlIdentifier = domain,
                     domain = domain,
-                    totalTime = ms,
-                    lastVisited = 0L,
+                    totalTime = duration
                 )
             }
-            websiteOut = websiteStats + syncedWebsites
-            statsOut = (appStats + AllAppsUsageFragment.Stat(
+            apps = apps + AppUsageStat(
                 neth.iecal.curbox.data.sync.SYNCED_WEB_PACKAGE,
-                remote.values.sum(),
-            )).sortedByDescending { it.totalTime }
+                source.remoteWebsites.values.sum()
+            )
+        }
+        return DayUsage(apps, websites, source.reels)
+    }
+
+    private suspend fun sourceForDay(date: LocalDate): DayUsageSource {
+        dayUsageCache[date]?.let { return it }
+        primeDayUsageCache(listOf(date))
+        return dayUsageCache.getValue(date)
+    }
+
+    private suspend fun primeDayUsageCache(dates: Collection<LocalDate>) = coroutineScope {
+        val missingDates = dates.distinct().filterNot(dayUsageCache::containsKey)
+        if (missingDates.isEmpty()) return@coroutineScope
+
+        val dateKeys = missingDates.associateWith { date ->
+            neth.iecal.curbox.utils.TimeTools.dayKey(date)
+        }
+        val datesByKey = dateKeys.entries.associate { (date, key) -> key to date }
+        val isoDates = missingDates.mapTo(linkedSetOf()) { it.toString() }
+
+        val appStats = async { usageStatsHelper.getForegroundStatsByDays(missingDates) }
+        val websites = async {
+            websiteStatsDao.getStatsForDates(dateKeys.values.toList())
+                .mapNotNull { stat -> datesByKey[stat.date]?.let { date -> date to stat } }
+                .groupBy({ it.first }, { it.second })
+        }
+        val reels = async {
+            reelUsageStatsDao.getForDates(dateKeys.values.toList())
+                .mapNotNull { stat -> datesByKey[stat.date]?.let { date -> date to stat } }
+                .groupBy({ it.first }, { it.second })
+        }
+        val remoteUsage = async {
+            remoteUsageForDates(neth.iecal.curbox.data.sync.SyncGateway.provider, isoDates)
         }
 
-        // Computed from statsOut (not appStats) so synced website time, folded in
-        // above as the "Synced browsing" row, counts toward the header total too.
-        val total = statsOut.sumOf { it.totalTime }
-
-        withContext(Dispatchers.Main) {
-            _selectedDayStats.value = statsOut
-            _selectedDayWebsiteStats.value = websiteOut
-            _selectedDayReelUsageStats.value = reelUsageStats
-            _totalTime.value = total
-            _dateSublabel.value = sublabel
+        val appStatsByDate = appStats.await()
+        val websitesByDate = websites.await()
+        val reelsByDate = reels.await()
+        val remoteUsageByDate = remoteUsage.await()
+        missingDates.forEach { date ->
+            val remote = remoteUsageByDate[date.toString()]
+            dayUsageCache.putIfAbsent(
+                date,
+                DayUsageSource(
+                    localApps = appStatsByDate[date].orEmpty(),
+                    remoteApps = remote?.apps.orEmpty(),
+                    websites = websitesByDate[date].orEmpty(),
+                    remoteWebsites = remote?.websites.orEmpty(),
+                    reels = reelsByDate[date].orEmpty()
+                )
+            )
         }
     }
 
-    // Local + synced app time, plus synced website time, for one day. Used both
-    // for the weekly bar graph and (via loadDayStats) the header total, so a
-    // day's bar always matches what you see when you tap into it.
-    private suspend fun totalTimeForDay(date: LocalDate): Long {
-        val remoteApps = remoteAppTotals(date)
-        val stats = getFilteredStatsForDay(date)
-        val appStats = if (remoteApps.isEmpty()) stats else mergeRemoteApps(stats, remoteApps)
-        val remoteWebsites = remoteWebsiteTotals(date)
-        return appStats.sumOf { it.totalTime } + remoteWebsites.values.sum()
+    private suspend fun refreshProvider(provider: neth.iecal.curbox.data.sync.SyncProvider) {
+        try {
+            provider.refresh()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            // Local usage remains available when a sync refresh fails.
+        }
     }
 
-    // Empty on F-Droid (NoopSyncProvider) and whenever nothing has synced yet.
-    private suspend fun remoteAppTotals(date: LocalDate): Map<String, Long> = runCatching {
-        neth.iecal.curbox.data.sync.SyncGateway.provider.remoteAppUsage(date.toString())
-    }.getOrDefault(emptyMap())
-
-    private suspend fun remoteWebsiteTotals(date: LocalDate): Map<String, Long> = runCatching {
-        neth.iecal.curbox.data.sync.SyncGateway.provider.remoteWebsiteUsage(date.toString())
-    }.getOrDefault(emptyMap())
+    private suspend fun remoteUsageForDates(
+        provider: neth.iecal.curbox.data.sync.SyncProvider,
+        dates: Set<String>
+    ): Map<String, neth.iecal.curbox.data.sync.RemoteUsageTotals> = try {
+        provider.remoteUsageForDates(dates)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (_: Exception) {
+        emptyMap()
+    }
 
     // Combines other devices' per app time into this device's list: matching apps
     // get their time added together, and apps that only ran on another device are
     // appended as their own rows.
     private fun mergeRemoteApps(
-        local: List<AllAppsUsageFragment.Stat>,
+        local: List<AppUsageStat>,
         remote: Map<String, Long>,
-    ): List<AllAppsUsageFragment.Stat> {
+    ): List<AppUsageStat> {
         val localByPkg = local.associateBy { it.packageName }
-        val merged = ArrayList<AllAppsUsageFragment.Stat>(local.size + remote.size)
+        val merged = ArrayList<AppUsageStat>(local.size + remote.size)
         for (st in local) {
             val extra = remote[st.packageName] ?: 0L
             merged.add(
                 if (extra > 0L) {
-                    AllAppsUsageFragment.Stat(st.packageName, st.totalTime + extra, st.sessions, st.hourlyUsage)
+                    AppUsageStat(st.packageName, st.totalTime + extra, st.sessions, st.hourlyUsage)
                 } else {
                     st
                 },
@@ -339,29 +406,31 @@ class AllAppsUsageViewModel(application: Application) : AndroidViewModel(applica
         }
         for ((pkg, ms) in remote) {
             if (pkg !in localByPkg && ms >= 1_000 && pkg !in ignoredPackages) {
-                merged.add(AllAppsUsageFragment.Stat(pkg, ms))
+                merged.add(AppUsageStat(pkg, ms))
             }
         }
         return merged
     }
 
-    private fun getWeekStart(offset: Int): LocalDate {
-        return LocalDate.now()
-            .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
-            .plusWeeks(offset.toLong())
-    }
-
-    private suspend fun getStatsForDay(date: LocalDate): List<AllAppsUsageFragment.Stat> {
-        dayStatsCache[date]?.let { return it }
-        val stats = usageStatsHelper.getForegroundStatsByDay(date)
-        dayStatsCache[date] = stats
-        return stats
-    }
-
-    private suspend fun getFilteredStatsForDay(date: LocalDate): List<AllAppsUsageFragment.Stat> {
-        return getStatsForDay(date).filter {
-            it.totalTime >= 1_000 && it.packageName !in ignoredPackages
+    private fun datesIn(period: AppUsagePeriod, today: LocalDate): List<LocalDate> {
+        val dates = mutableListOf<LocalDate>()
+        var date = period.start
+        val end = minOf(period.endInclusive, today)
+        while (!date.isAfter(end)) {
+            dates += date
+            date = date.plusDays(1)
         }
+        return dates
+    }
+
+    private fun formatRange(start: LocalDate, endInclusive: LocalDate): String {
+        val startLabel = start.format(dayLabelFormatter)
+        if (start == endInclusive) return startLabel
+        return getApplication<Application>().getString(
+            R.string.usage_date_range,
+            startLabel,
+            endInclusive.format(dayLabelFormatter)
+        )
     }
 
     private suspend fun preloadAppMetadata(packageNames: Collection<String>) {
@@ -424,5 +493,9 @@ class AllAppsUsageViewModel(application: Application) : AndroidViewModel(applica
 
     fun getAppCategory(packageName: String): String {
         return getAppMetadata(packageName).category
+    }
+
+    private companion object {
+        const val MILLIS_PER_HOUR = 1000f * 60f * 60f
     }
 }

@@ -27,17 +27,15 @@ import neth.iecal.curbox.ui.fragments.main.reducers.advanced.AntiUninstallFragme
 import neth.iecal.curbox.ui.fragments.main.reducers.advanced.ServiceProtectionFragment
 import neth.iecal.curbox.ui.fragments.main.reducers.advanced.SettingsChangeDelayFragment
 import androidx.core.view.isVisible
-import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
-import android.graphics.RenderEffect
-import android.graphics.Shader
 import android.net.Uri
 import android.os.Build
 import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import neth.iecal.curbox.utils.BlurFadeAnimator
 
 class FragmentActivity : AppCompatActivity() {
 
@@ -280,39 +278,10 @@ class FragmentActivity : AppCompatActivity() {
         val container = findViewById<android.view.View>(R.id.fragment_holder)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val animator = ValueAnimator.ofFloat(0f, 1f)
-            animator.duration = 500 // Slightly longer for a more "premium" feel
-
-            var fragmentSwapped = false
-
-            animator.addUpdateListener { animation ->
-                val fraction = animation.animatedFraction
-
-                // Animate blur: 0 -> 40 -> 0
-                val blurRadius = if (fraction < 0.5f) fraction * 2 * 40f else (1f - fraction) * 2 * 40f
-
-                // Animate alpha: 1.0 -> 0.0 -> 1.0 (Full dip to 0 to hide the swap)
-                val alphaValue = if (fraction < 0.5f) 1f - (fraction * 2f) else (fraction - 0.5f) * 2f
-
-                container.alpha = alphaValue
-
-                if (blurRadius > 0.1f) {
-                    container.setRenderEffect(
-                        RenderEffect.createBlurEffect(
-                            blurRadius, blurRadius, Shader.TileMode.CLAMP
-                        )
-                    )
-                } else {
-                    container.setRenderEffect(null)
-                }
-
-                if (fraction >= 0.5f && !fragmentSwapped) {
-                    fragmentSwapped = true
-                    // Remove the built-in fade animation here to avoid conflict with our manual alpha animation
-                    showTab(itemId, commitNow = true)
-                }
+            BlurFadeAnimator.fadeOut(container) {
+                showTab(itemId, commitNow = true)
+                BlurFadeAnimator.fadeIn(container)
             }
-            animator.start()
         } else {
             showTab(itemId)
         }
