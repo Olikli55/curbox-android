@@ -95,6 +95,7 @@ class WarningActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        sendWarningScreenVisibility(true)
 
         val mode = intent.getIntExtra("mode", 0)
 
@@ -658,6 +659,7 @@ class WarningActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        sendWarningScreenVisibility(false)
         super.onDestroy()
         stopNfcUnlockScan()
         proceedTimer?.cancel()
@@ -695,8 +697,17 @@ class WarningActivity : AppCompatActivity() {
     }
 
     private fun closeWarningScreen() {
+        sendWarningScreenVisibility(false)
         dialog?.dismiss()
         finishAffinity()
+    }
+
+    private fun sendWarningScreenVisibility(isVisible: Boolean) {
+        sendBroadcast(
+            Intent(AppBlocker.INTENT_ACTION_WARNING_SCREEN_VISIBILITY)
+                .setPackage(packageName)
+                .putExtra(AppBlocker.EXTRA_WARNING_SCREEN_VISIBLE, isVisible)
+        )
     }
 
     // Jagged rhythm prevents habituation and breaks the habit loop.

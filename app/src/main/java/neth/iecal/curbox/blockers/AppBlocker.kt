@@ -50,6 +50,9 @@ class AppBlocker : BaseBlocker() {
          * result_id : String -> ID of the app group to be put into cooldown
          */
         const val INTENT_ACTION_REFRESH_APP_BLOCKER_COOLDOWN = "neth.iecal.curbox.refresh.appblocker.cooldown"
+        const val INTENT_ACTION_WARNING_SCREEN_VISIBILITY =
+            "neth.iecal.curbox.appblocker.warning_screen_visibility"
+        const val EXTRA_WARNING_SCREEN_VISIBLE = "warning_screen_visible"
         private const val TARGET_EVENTS_MASK = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
     }
 
@@ -76,6 +79,7 @@ class AppBlocker : BaseBlocker() {
     private var lastPackage = ""
     private lateinit var service: BaseBlockingService
     private var settingsJob: kotlinx.coroutines.Job? = null
+    private var isWarningScreenVisible = false
 
 
     // responsible to trigger a recheck for what app user is currently using even when no event is received. Used in putting the usage recheck logic into
@@ -93,7 +97,14 @@ class AppBlocker : BaseBlocker() {
 
         val packageName = event.packageName?.toString() ?: return
 
-        if (lastPackage == packageName || packageName == service.packageName || ignoredApps.contains(packageName)) {
+        if (packageName == service.packageName &&
+            (isWarningScreenVisible || event.className?.toString() == WarningActivity::class.java.name)
+        ) {
+            isWarningScreenVisible = true
+            return
+        }
+
+        if (lastPackage == packageName || ignoredApps.contains(packageName)) {
             return
         }
 
@@ -201,6 +212,7 @@ class AppBlocker : BaseBlocker() {
         val filter = IntentFilter().apply {
             addAction(INTENT_ACTION_REFRESH_APP_BLOCKER)
             addAction(INTENT_ACTION_REFRESH_APP_BLOCKER_COOLDOWN)
+            addAction(INTENT_ACTION_WARNING_SCREEN_VISIBILITY)
         }
         ContextCompat.registerReceiver(
             service,
@@ -417,7 +429,7 @@ class AppBlocker : BaseBlocker() {
             lastPackage = ""
 
             try {
-                if (AppSuspendHelper.isShizukuAvailable()) {
+                if (packageName != service.packageName && AppSuspendHelper.isShizukuAvailable()) {
                     ShizukuRunner.executeCommand(
                         "am force-stop $packageName",
                         object : ShizukuRunner.CommandResultListener {})
@@ -427,6 +439,7 @@ class AppBlocker : BaseBlocker() {
             }
 
             if (warningConfig.isWarningDialogHidden) return
+            isWarningScreenVisible = true
 
             handler.postDelayed({
                 val dialogIntent = Intent(service, WarningActivity::class.java).apply {
@@ -450,6 +463,12 @@ class AppBlocker : BaseBlocker() {
             when (intent.action) {
                 INTENT_ACTION_REFRESH_APP_BLOCKER -> setupAppBlocker(service)
                 INTENT_ACTION_REFRESH_APP_BLOCKER_COOLDOWN -> handlePutCooldownIntentBroadcast(intent)
+                INTENT_ACTION_WARNING_SCREEN_VISIBILITY -> {
+                    isWarningScreenVisible = intent.getBooleanExtra(
+                        EXTRA_WARNING_SCREEN_VISIBLE,
+                        false
+                    )
+                }
             }
         }
     }

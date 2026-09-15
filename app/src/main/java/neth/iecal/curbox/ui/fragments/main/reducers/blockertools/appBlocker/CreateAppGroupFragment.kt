@@ -204,8 +204,10 @@ class CreateAppGroupFragment : Fragment() {
     }
 
     private fun openAppSelector() {
-        val intent = Intent(requireContext(), SelectAppsActivity::class.java)
-        intent.putStringArrayListExtra("PRE_SELECTED_APPS", selectedApps)
+        val intent = Intent(requireContext(), SelectAppsActivity::class.java).apply {
+            putStringArrayListExtra("PRE_SELECTED_APPS", selectedApps)
+            putExtra(SelectAppsActivity.EXTRA_ALLOW_CURBOX, true)
+        }
         selectAppsLauncher.launch(intent)
     }
 
