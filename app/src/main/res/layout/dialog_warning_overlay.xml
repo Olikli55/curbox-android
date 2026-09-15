@@ -135,7 +135,7 @@
         android:layout_margin="8dp"
         android:visibility="gone"
         android:hint="@string/hint_unlock_reason">
-        <com.google.android.material.textfield.TextInputEditText
+        <neth.iecal.curbox.ui.views.NoPasteTextInputEditText
             android:id="@+id/intent_input_edit"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
