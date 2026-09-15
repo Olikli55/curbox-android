@@ -14,7 +14,7 @@
         Curbox teilt niemald irgendetwas ohne deine Zustimmung.
         \n\n
     </string>
-    <string name="admin_permission_desc">Curbox Manipulationsschutz>
+    <string name="admin_permission_desc">Curbox Manipulationsschutz</string>
     <string name="close">Schließen</string>
     <string name="proceed">Fortfahren</string>
     <string name="cancel">Abbruch</string>
@@ -133,7 +133,6 @@
     <string name="schedule_overlap_not_saved">Sich überschneidende Zeitspannen wurden nicht gespeichert</string>
     <string name="schedule_no_room_for_range">Kein Platz mehr für noch eine Zeitspanne</string>
     <string name="schedule_conflict_title">Zeitplankonflikt</string>
-    <string name="schedule_conflict_item">These apps are also in %2$s during the same time: %1$s. Both rules will apply.</string>
     <string name="schedule_conflict_item">Diese Apps sind auch in %2$s in der selben Zeit: %1$s. Beide Regeln werden angewandt.</string>
     <string name="schedule_conflict_edit_apps">Apps bearbeiten</string>
     <string name="schedule_conflict_edit_schedule">Zeitplan bearbeiten</string>
@@ -150,7 +149,6 @@
     <string name="link_time_group">Eine Zeitgruppe limitieren</string>
     <string name="no_time_group">Keine Zeitgruppe (den ganzen Tag)</string>
     <string name="linked_time_group">Zeitgruppe: %1$s</string>
-    <string name="linked_warning_managed">Warning screen is managed by the linked usage group</string>
     <string name="linked_warning_managed">Warnbildschirm wird von verlinkter Benutzungsgruppe verwaltet</string>
     <string name="done">Fertig</string>
     <string name="set_limits_for_each_day">Zeitgrenzen für jeden Tag setzen</string>
@@ -352,11 +350,10 @@
     <string name="text_opacity_label">Textdeckkraft: 100%</string>
     <string name="text_opacity_value">Textdeckkraft: %d%%</string>
     <string name="position_label">Position</string>
-    <string name="position_hint">Drag the indicator to set where the overlay appears</string>
     <string name="position_hint">Ziehe den Indikator, bis die Überlagerung erscheint</string>
 
     <!-- Extracted Strings -->
-    <string name="dialog_question_mark">?</string>
+    <string name="dialog_question_mark">\?</string>
     <string name="blocking_service_channel_name">Sperrservice</string>
     <string name="blocking_service_channel_description">Läuft im Hintergrund um dich zu schützen</string>
     <string name="blocking_service_notification_title">Curbox %1$s ist aktiv</string>
