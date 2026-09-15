@@ -327,6 +327,14 @@ class DataStoreManager(private val context: Context) {
         updateGated(GatedSettingsField.REEL_BLOCKER) { config.upgradeLegacyConfig(gson) }
     }
 
+    suspend fun updateAllowInstagramReelsFromDmInbox(allow: Boolean) {
+        updateGated(GatedSettingsField.REEL_BLOCKER) {
+            it.reelBlockerConfig.upgradeLegacyConfig(gson).copy(
+                allowInstagramReelsFromDmInbox = allow
+            )
+        }
+    }
+
     suspend fun updateKeywordBlockerConfig(transform: (neth.iecal.curbox.data.models.KeywordBlocker) -> neth.iecal.curbox.data.models.KeywordBlocker) {
         updateGated(GatedSettingsField.KEYWORD_BLOCKER) { transform(it.keywordBlockerConfig) }
     }

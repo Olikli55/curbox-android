@@ -110,6 +110,12 @@ class ReelBlockerFragment : Fragment() {
             }
             selectExcludedAppsLauncher.launch(intent)
         }
+
+        binding.checkboxAllowInstagramDmReels.setOnCheckedChangeListener { _, isChecked ->
+            if (!isUpdatingUi) {
+                viewModel.setAllowInstagramReelsFromDmInbox(isChecked)
+            }
+        }
     }
 
     private fun observeViewModel() {
@@ -140,6 +146,8 @@ class ReelBlockerFragment : Fragment() {
                     R.string.reel_blocker_allowed_apps_count,
                     config.excludedPackages.size
                 )
+                binding.checkboxAllowInstagramDmReels.isChecked =
+                    config.allowInstagramReelsFromDmInbox
                 isUpdatingUi = false
             }
         }

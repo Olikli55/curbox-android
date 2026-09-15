@@ -16,6 +16,7 @@ class ReelBlockerRestrictionComparatorTest {
         val config = Gson().fromJson("""{"isActive":true}""", ReelBlocker::class.java)
 
         assertTrue(config.excludedPackages.isEmpty())
+        assertFalse(config.allowInstagramReelsFromDmInbox)
     }
 
     @Test
@@ -48,5 +49,32 @@ class ReelBlockerRestrictionComparatorTest {
         val new = old.copy(excludedPackages = emptyList())
 
         assertTrue(RestrictionComparator.reelBlocker(old, new))
+    }
+
+    @Test
+    fun allowingInstagramReelsFromDmInboxIsWeaker() {
+        val old = ReelBlocker(isActive = true)
+
+        assertFalse(
+            RestrictionComparator.reelBlocker(
+                old,
+                old.copy(allowInstagramReelsFromDmInbox = true)
+            )
+        )
+    }
+
+    @Test
+    fun disallowingInstagramReelsFromDmInboxIsStricter() {
+        val old = ReelBlocker(
+            isActive = true,
+            allowInstagramReelsFromDmInbox = true
+        )
+
+        assertTrue(
+            RestrictionComparator.reelBlocker(
+                old,
+                old.copy(allowInstagramReelsFromDmInbox = false)
+            )
+        )
     }
 }
