@@ -1,5 +1,6 @@
 package neth.iecal.curbox.ui.activity
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -402,16 +403,22 @@ class WarningActivity : AppCompatActivity() {
                             hasUnlockChallenge -> binding.minsPicker.getValue()
                             else -> binding.minsPicker.getValue()
                         }
+                        binding.btnProceed.isEnabled = false
                         sendRefreshRequest(
                             it1,
                             AppBlocker.INTENT_ACTION_REFRESH_APP_BLOCKER_COOLDOWN,
-                            finalTime
+                            finalTime,
+                            onDelivered = {
+                                try {
+                                    val launchPackage = intent.getStringExtra("launch_package") ?: it1
+                                    packageManager.getLaunchIntentForPackage(launchPackage)
+                                        ?.let(::startActivity)
+                                } finally {
+                                    closeWarningScreen()
+                                }
+                            }
                         )
-                        val launchPackage = intent.getStringExtra("launch_package") ?: it1
-                        val intent = packageManager.getLaunchIntentForPackage(launchPackage)
-                        if (intent != null) {
-                            startActivity(intent)
-                        }
+                        return@setOnClickListener
                     }
             }
 
@@ -431,8 +438,7 @@ class WarningActivity : AppCompatActivity() {
                     }
             }
 
-            dialog?.dismiss()
-            finishAffinity()
+            closeWarningScreen()
         }
     }
 
@@ -659,11 +665,38 @@ class WarningActivity : AppCompatActivity() {
         dialog?.dismiss()
     }
 
-    private fun sendRefreshRequest(id: String, action: String, time: Int) {
-        val intent = Intent(action)
+    private fun sendRefreshRequest(
+        id: String,
+        action: String,
+        time: Int,
+        onDelivered: (() -> Unit)? = null
+    ) {
+        val intent = Intent(action).setPackage(packageName)
         intent.putExtra("result_id", id)
         intent.putExtra("selected_time", time * 60_000L)
-        sendBroadcast(intent)
+        if (onDelivered == null) {
+            sendBroadcast(intent)
+            return
+        }
+
+        sendOrderedBroadcast(
+            intent,
+            null,
+            object : BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    onDelivered()
+                }
+            },
+            null,
+            RESULT_OK,
+            null,
+            null
+        )
+    }
+
+    private fun closeWarningScreen() {
+        dialog?.dismiss()
+        finishAffinity()
     }
 
     // Jagged rhythm prevents habituation and breaks the habit loop.

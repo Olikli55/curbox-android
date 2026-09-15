@@ -2,6 +2,7 @@ package neth.iecal.curbox.ui.fragments.main
 
 import neth.iecal.curbox.R
 
+import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -9,6 +10,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
+import androidx.core.content.FileProvider
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -196,7 +198,7 @@ class InfoFragment : Fragment() {
             .setTitle(R.string.crash_logs_title)
             .setMessage(displayContent)
             .setPositiveButton(R.string.share) { _, _ ->
-                shareCrashLogs(content)
+                shareCrashLogs(logFile)
             }
             .setNegativeButton(R.string.close, null)
             .setNeutralButton(R.string.clear) { _, _ ->
@@ -207,17 +209,30 @@ class InfoFragment : Fragment() {
             .show()
     }
 
-    private fun shareCrashLogs(content: String) {
-        if (content == "No crash logs available." || content == "Error reading crash logs.") run {
+    private fun shareCrashLogs(logFile: File) {
+        if (!logFile.exists() || logFile.length() == 0L) {
             Toast.makeText(requireContext(), getString(R.string.nothing_to_share), Toast.LENGTH_SHORT).show()
             return
         }
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "Curbox Crash Logs")
-            putExtra(Intent.EXTRA_TEXT, content)
+
+        try {
+            val context = requireContext()
+            val logUri = FileProvider.getUriForFile(
+                context,
+                "${BuildConfig.APPLICATION_ID}.provider",
+                logFile
+            )
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, "Curbox Crash Logs")
+                putExtra(Intent.EXTRA_STREAM, logUri)
+                clipData = ClipData.newUri(context.contentResolver, "Curbox Crash Logs", logUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(intent, "Share Crash Logs"))
+        } catch (_: Exception) {
+            Toast.makeText(requireContext(), R.string.unable_to_share_crash_logs, Toast.LENGTH_SHORT).show()
         }
-        startActivity(Intent.createChooser(intent, "Share Crash Logs"))
     }
 
     override fun onDestroyView() {

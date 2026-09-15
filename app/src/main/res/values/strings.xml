@@ -320,6 +320,7 @@
     <string name="generating_analysis_csv">Generating Analysis CSV...</string>
     <string name="crash_logs_cleared">Crash logs cleared</string>
     <string name="nothing_to_share">Nothing to share.</string>
+    <string name="unable_to_share_crash_logs">Could not share crash logs.</string>
     <string name="group_deleted">Group deleted</string>
     <string name="please_select_at_least_one_app">Please select at least one app</string>
     <string name="group_saved_successfully">Group saved successfully</string>
