@@ -21,6 +21,7 @@ import neth.iecal.curbox.R
 import neth.iecal.curbox.data.sync.SYNCED_WEB_PACKAGE
 import neth.iecal.curbox.data.sync.SyncGateway
 import neth.iecal.curbox.ui.activity.FragmentActivity
+import neth.iecal.curbox.ui.fragments.main.usage.AppUsageStat
 import neth.iecal.curbox.ui.fragments.main.usage.AllAppsUsageFragment
 import neth.iecal.curbox.utils.DataStoreManager
 import neth.iecal.curbox.utils.TimeTools
@@ -180,7 +181,7 @@ class ScreentimeWidgetProvider : AppWidgetProvider() {
         val list = buildList {
             addAll(mergeRemoteApps(localList, remoteApps, ignoredPackages))
             if (remoteWebsiteTime >= 1_000) {
-                add(AllAppsUsageFragment.Stat(SYNCED_WEB_PACKAGE, remoteWebsiteTime))
+                add(AppUsageStat(SYNCED_WEB_PACKAGE, remoteWebsiteTime))
             }
         }.sortedByDescending { it.totalTime }
 
@@ -228,18 +229,18 @@ class ScreentimeWidgetProvider : AppWidgetProvider() {
     // get their time added together, and apps that only ran on another device are
     // appended as their own rows. Mirrors AllAppsUsageViewModel.mergeRemoteApps.
     private fun mergeRemoteApps(
-        local: List<AllAppsUsageFragment.Stat>,
+        local: List<AppUsageStat>,
         remote: Map<String, Long>,
         ignoredPackages: Set<String>,
-    ): List<AllAppsUsageFragment.Stat> {
+    ): List<AppUsageStat> {
         if (remote.isEmpty()) return local
         val localByPkg = local.associateBy { it.packageName }
-        val merged = ArrayList<AllAppsUsageFragment.Stat>(local.size + remote.size)
+        val merged = ArrayList<AppUsageStat>(local.size + remote.size)
         for (st in local) {
             val extra = remote[st.packageName] ?: 0L
             merged.add(
                 if (extra > 0L) {
-                    AllAppsUsageFragment.Stat(st.packageName, st.totalTime + extra, st.sessions, st.hourlyUsage)
+                    AppUsageStat(st.packageName, st.totalTime + extra, st.sessions, st.hourlyUsage)
                 } else {
                     st
                 }
@@ -247,7 +248,7 @@ class ScreentimeWidgetProvider : AppWidgetProvider() {
         }
         for ((pkg, ms) in remote) {
             if (pkg !in localByPkg && ms >= 1_000 && pkg !in ignoredPackages) {
-                merged.add(AllAppsUsageFragment.Stat(pkg, ms))
+                merged.add(AppUsageStat(pkg, ms))
             }
         }
         return merged
@@ -271,7 +272,7 @@ class ScreentimeWidgetProvider : AppWidgetProvider() {
     private fun setAppUsageRow(
         remoteViews: RemoteViews,
         index: Int,
-        list: List<AllAppsUsageFragment.Stat>,
+        list: List<AppUsageStat>,
         visibleAppCount: Int,
         context: Context,
     ) {

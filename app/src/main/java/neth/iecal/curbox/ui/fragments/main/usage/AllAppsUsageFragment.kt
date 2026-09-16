@@ -1,6 +1,7 @@
 package neth.iecal.curbox.ui.fragments.main.usage
 
 import android.annotation.SuppressLint
+import android.animation.ValueAnimator
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Intent
@@ -53,7 +54,9 @@ import neth.iecal.curbox.ui.activity.SelectAppsActivity
 import neth.iecal.curbox.ui.fragments.installation.onboarding.OnboardingFragment
 import neth.iecal.curbox.ui.widgets.ReelsWidgetProvider
 import neth.iecal.curbox.ui.widgets.ScreentimeWidgetProvider
+import neth.iecal.curbox.ui.views.WeeklyBarGraphView
 import neth.iecal.curbox.utils.ColorUtils
+import neth.iecal.curbox.utils.BlurFadeAnimator
 import neth.iecal.curbox.utils.DataStoreManager
 import neth.iecal.curbox.utils.PermissionUtils
 import neth.iecal.curbox.utils.TimeTools
@@ -75,6 +78,10 @@ class AllAppsUsageFragment : Fragment() {
 
         private lateinit var viewModel: AllAppsUsageViewModel
         private lateinit var usageStatsHelper: UsageStatsHelper
+        private var chartTransitionAnimator: ValueAnimator? = null
+        private var chartTransitionActive = false
+        private var chartTransitionHidden = false
+        private var chartTransitionDataReady = false
 
         val selectIgnoredAppsLauncher =
             registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -177,16 +184,23 @@ class AllAppsUsageFragment : Fragment() {
             observeViewModel(adapter)
 
             binding.btnPrevWeek.setOnClickListener {
-                viewModel.goToPreviousWeek()
+                viewModel.goToPreviousPeriod()
             }
             binding.btnNextWeek.setOnClickListener {
-                viewModel.goToNextWeek()
+                viewModel.goToNextPeriod()
             }
 
-            binding.weeklyBarGraph.setOnDaySelectedListener { dayData ->
+            binding.weeklyBarGraph.setOnBarSelectedListener { barData ->
                 val index =
-                    viewModel.weeklyData.value?.indexOf(dayData) ?: return@setOnDaySelectedListener
-                viewModel.selectDay(index)
+                    viewModel.chartData.value?.indexOf(barData) ?: return@setOnBarSelectedListener
+                viewModel.selectPeriod(index)
+            }
+            binding.weeklyBarGraph.enableZoom { zoomLevel ->
+                val scale = when (zoomLevel) {
+                    WeeklyBarGraphView.ZoomLevel.DAYS -> AppUsageChartScale.DAYS
+                    WeeklyBarGraphView.ZoomLevel.WEEKS -> AppUsageChartScale.WEEKS
+                }
+                viewModel.setChartScale(scale)
             }
 
             binding.openMenu.setOnClickListener {
@@ -340,63 +354,64 @@ class AllAppsUsageFragment : Fragment() {
         }
 
         private fun observeViewModel(adapter: AppUsageAdapter) {
-            viewModel.weeklyData.observe(viewLifecycleOwner) { data ->
+            viewModel.chartData.observe(viewLifecycleOwner) { data ->
                 val b = _binding ?: return@observe
-                val selectedIdx = viewModel.selectedDayIndex.value ?: 6
+                val selectedIdx = viewModel.selectedPeriodIndex.value ?: data.lastIndex
                 b.weeklyBarGraph.setData(data, selectedIdx)
             }
 
-            viewModel.selectedDayIndex.observe(viewLifecycleOwner) { index ->
+            viewModel.selectedPeriodIndex.observe(viewLifecycleOwner) { index ->
                 val b = _binding ?: return@observe
                 b.weeklyBarGraph.setSelectedIndex(index)
             }
 
-            viewModel.selectedDayStats.observe(viewLifecycleOwner) { stats ->
-                if (_binding == null) return@observe
-                adapter.updateData(
-                    stats,
-                    viewModel.selectedDayWebsiteStats.value ?: emptyList(),
-                    viewModel.selectedDayReelUsageStats.value ?: emptyList()
-                )
-            }
-
-            viewModel.selectedDayWebsiteStats.observe(viewLifecycleOwner) { websiteStats ->
-                if (_binding == null) return@observe
-                adapter.updateData(
-                    viewModel.selectedDayStats.value ?: emptyList(),
-                    websiteStats,
-                    viewModel.selectedDayReelUsageStats.value ?: emptyList()
-                )
-            }
-
-            viewModel.selectedDayReelUsageStats.observe(viewLifecycleOwner) { reelStats ->
-                if (_binding == null) return@observe
-                adapter.updateData(
-                    viewModel.selectedDayStats.value ?: emptyList(),
-                    viewModel.selectedDayWebsiteStats.value ?: emptyList(),
-                    reelStats
-                )
-            }
-
-            viewModel.totalTime.observe(viewLifecycleOwner) { totalMs ->
+            viewModel.selectedPeriodAnalytics.observe(viewLifecycleOwner) { analytics ->
                 val b = _binding ?: return@observe
-                b.totalUsage.text = TimeTools.formatTimeForWidget(totalMs)
+                adapter.updateData(analytics.apps, analytics.websites, analytics.reels)
+                b.totalUsage.text = TimeTools.formatTimeForWidget(analytics.totalTime)
+                b.dateSublabel.text = analytics.totalLabel
             }
 
-            viewModel.weekRangeLabel.observe(viewLifecycleOwner) { label ->
+            viewModel.chartRangeLabel.observe(viewLifecycleOwner) { label ->
                 val b = _binding ?: return@observe
                 b.tvWeekRange.text = label
+            }
+
+            viewModel.chartScale.observe(viewLifecycleOwner) { scale ->
+                val b = _binding ?: return@observe
+                val isWeekly = scale == AppUsageChartScale.WEEKS
+                b.weeklyBarGraph.setZoomLevel(
+                    if (isWeekly) WeeklyBarGraphView.ZoomLevel.WEEKS
+                    else WeeklyBarGraphView.ZoomLevel.DAYS
+                )
+                b.weeklyBarGraph.setContentDescription(
+                    getString(
+                        if (isWeekly) R.string.usage_weekly_chart_description
+                        else R.string.usage_daily_chart_description
+                    )
+                )
+                b.btnPrevWeek.setContentDescription(
+                    getString(
+                        if (isWeekly) R.string.desc_earlier_weeks
+                        else R.string.desc_previous_week
+                    )
+                )
+                b.btnNextWeek.setContentDescription(
+                    getString(
+                        if (isWeekly) R.string.desc_later_weeks
+                        else R.string.desc_next_week
+                    )
+                )
+            }
+
+            viewModel.isChartTransitioning.observe(viewLifecycleOwner) { transitioning ->
+                if (transitioning) beginChartTransition() else markChartDataReady()
             }
 
             viewModel.canGoNext.observe(viewLifecycleOwner) { canGo ->
                 val b = _binding ?: return@observe
                 b.btnNextWeek.alpha = if (canGo) 1f else 0.3f
                 b.btnNextWeek.isEnabled = canGo
-            }
-
-            viewModel.dateSublabel.observe(viewLifecycleOwner) { label ->
-                val b = _binding ?: return@observe
-                b.dateSublabel.text = label
             }
 
             viewModel.isLoading.observe(viewLifecycleOwner) { isLoading ->
@@ -431,6 +446,32 @@ class AllAppsUsageFragment : Fragment() {
             super.onResume()
             if (::viewModel.isInitialized) {
                 viewModel.reload()
+            }
+        }
+
+        private fun beginChartTransition() {
+            val content = _binding?.main ?: return
+            chartTransitionAnimator?.cancel()
+            chartTransitionActive = true
+            chartTransitionHidden = false
+            chartTransitionDataReady = false
+            chartTransitionAnimator = BlurFadeAnimator.fadeOut(content) {
+                chartTransitionHidden = true
+                revealChartIfReady()
+            }
+        }
+
+        private fun markChartDataReady() {
+            if (!chartTransitionActive) return
+            chartTransitionDataReady = true
+            revealChartIfReady()
+        }
+
+        private fun revealChartIfReady() {
+            if (!chartTransitionActive || !chartTransitionHidden || !chartTransitionDataReady) return
+            val content = _binding?.main ?: return
+            chartTransitionAnimator = BlurFadeAnimator.fadeIn(content) {
+                chartTransitionActive = false
             }
         }
 
@@ -585,7 +626,7 @@ class AllAppsUsageFragment : Fragment() {
             RecyclerView.ViewHolder(binding.root) {
 
             fun bind(
-                stats: Stat,
+                stats: AppUsageStat,
                 websiteStats: List<WebsiteStatsEntity>,
                 reelUsageStats: List<ReelUsageStatsEntity>
             ) {
@@ -748,7 +789,7 @@ class AllAppsUsageFragment : Fragment() {
         }
 
         inner class AppUsageAdapter(
-            private var appUsageStats: List<Stat>,
+            private var appUsageStats: List<AppUsageStat>,
             private var websiteStats: List<WebsiteStatsEntity> = emptyList(),
             private var reelUsageStats: List<ReelUsageStatsEntity> = emptyList()
         ) : RecyclerView.Adapter<AppUsageViewHolder>() {
@@ -765,7 +806,7 @@ class AllAppsUsageFragment : Fragment() {
 
             @SuppressLint("NotifyDataSetChanged")
             fun updateData(
-                newAppUsageStats: List<Stat>,
+                newAppUsageStats: List<AppUsageStat>,
                 newWebsiteStats: List<WebsiteStatsEntity> = emptyList(),
                 newReelUsageStats: List<ReelUsageStatsEntity> = emptyList()
             ) {
@@ -779,14 +820,10 @@ class AllAppsUsageFragment : Fragment() {
         }
 
 
-        class Stat(
-            val packageName: String,
-            val totalTime: Long,
-            val sessions: Int = 0,
-            val hourlyUsage: LongArray = LongArray(24)
-        )
-
         override fun onDestroyView() {
+            chartTransitionAnimator?.cancel()
+            _binding?.main?.let(BlurFadeAnimator::reset)
+            chartTransitionActive = false
             super.onDestroyView()
             _binding = null
         }

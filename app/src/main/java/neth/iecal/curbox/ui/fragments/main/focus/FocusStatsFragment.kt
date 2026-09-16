@@ -145,7 +145,7 @@ class FocusStatsFragment : Fragment() {
     }
     
     private fun updateWeeklyGraph(sessions: List<FocusStatsEntity>) {
-        val days = mutableListOf<neth.iecal.curbox.ui.views.WeeklyBarGraphView.DayData>()
+        val days = mutableListOf<neth.iecal.curbox.ui.views.WeeklyBarGraphView.BarData>()
         val cal = Calendar.getInstance()
         cal.set(Calendar.HOUR_OF_DAY, 0)
         cal.set(Calendar.MINUTE, 0)
@@ -168,7 +168,7 @@ class FocusStatsFragment : Fragment() {
             val hours = totalMs / 3600000f
             
             val c = Calendar.getInstance().apply { timeInMillis = dayStart }
-            days.add(neth.iecal.curbox.ui.views.WeeklyBarGraphView.DayData(
+            days.add(neth.iecal.curbox.ui.views.WeeklyBarGraphView.BarData(
                 label = format.format(c.time),
                 value = hours,
                 dateMillis = dayStart

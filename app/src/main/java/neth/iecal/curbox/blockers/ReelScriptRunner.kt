@@ -9,8 +9,31 @@ import neth.iecal.curbox.blockers.uihider.script.Interpreter
 import neth.iecal.curbox.blockers.uihider.script.Parser
 import neth.iecal.curbox.blockers.uihider.script.ScriptError
 import neth.iecal.curbox.blockers.uihider.script.Stmt
+import neth.iecal.curbox.hardcoded.ReelAppConfig.Companion.INSTAGRAM_DM_REEL_MARKER
 import neth.iecal.curbox.hardcoded.ReelAppConfig.Companion.reelData
 import neth.iecal.curbox.services.BaseBlockingService
+
+data class ReelDetection(
+    val comparator: String,
+    val isInstagramReelOpenedFromDmInbox: Boolean = false
+)
+
+// not the cleanest way but okay ig
+internal fun reelDetectionFromScriptResult(
+    result: String,
+    comparisonResultCleanser: (String) -> String
+): ReelDetection {
+    val openedFromDmInbox = result.startsWith(INSTAGRAM_DM_REEL_MARKER)
+    val comparator = if (openedFromDmInbox) {
+        result.removePrefix(INSTAGRAM_DM_REEL_MARKER)
+    } else {
+        result
+    }
+    return ReelDetection(
+        comparator = comparisonResultCleanser(comparator),
+        isInstagramReelOpenedFromDmInbox = openedFromDmInbox
+    )
+}
 
 /** Runs the shipped reel detectors with the same node API and safety budget as UI Hider scripts. */
 class ReelScriptRunner {
@@ -40,8 +63,8 @@ class ReelScriptRunner {
         }
     }
 
-    /** Returns cleaned comparator text when a reel screen is open, including an empty comparator. */
-    fun detect(event: AccessibilityEvent): String? {
+    /** Returns reel screen details, including an empty comparator while its content loads. */
+    fun detect(event: AccessibilityEvent): ReelDetection? {
         val packageName = event.packageName?.toString() ?: return null
         val data = reelData[packageName] ?: return null
         val program = programs[packageName] ?: return null
@@ -69,8 +92,8 @@ class ReelScriptRunner {
         )
 
         return try {
-            val result = Interpreter(runtime, budget).run(program)
-            (result as? String)?.let(data.comparisonResultCleanser)
+            val result = Interpreter(runtime, budget).run(program) as? String ?: return null
+            reelDetectionFromScriptResult(result, data.comparisonResultCleanser)
         } catch (error: ScriptError) {
             Log.w(TAG, "Runtime error in reel detector for $packageName: ${error.message}")
             crashLogger.logNonFatalError(error)

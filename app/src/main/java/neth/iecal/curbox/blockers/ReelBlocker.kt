@@ -23,6 +23,7 @@ import neth.iecal.curbox.data.models.ReelTimeConfig
 import neth.iecal.curbox.data.models.ReelCountConfig
 import neth.iecal.curbox.data.models.upgradeLegacyConfig
 import neth.iecal.curbox.data.db.AppDatabase
+import neth.iecal.curbox.hardcoded.ReelAppConfig
 import neth.iecal.curbox.services.BaseBlockingService
 import neth.iecal.curbox.ui.activity.WarningActivity
 import neth.iecal.curbox.utils.TimeTools
@@ -60,7 +61,8 @@ class ReelBlocker : BaseBlocker() {
 
     fun doViewBlockerCheck(
         event: AccessibilityEvent?,
-        dynamicComparator: String?
+        dynamicComparator: String?,
+        isInstagramReelOpenedFromDmInbox: Boolean
     ){
         fun showWarningScreen(viewId: String){
             if(service.isDelayOver(3000)) {
@@ -87,6 +89,10 @@ class ReelBlocker : BaseBlocker() {
 
         val pkg = event.packageName?.toString() ?: return
         if (pkg in reelBlockerConfig.excludedPackages) return
+        if (pkg == ReelAppConfig.INSTAGRAM_PACKAGE &&
+            isInstagramReelOpenedFromDmInbox &&
+            reelBlockerConfig.allowInstagramReelsFromDmInbox
+        ) return
 
         val viewId = pkg
 

@@ -64,7 +64,21 @@ interface SyncProvider {
 
     /** App usage synced from a user's other Android devices, package name to milliseconds, for an ISO date. */
     suspend fun remoteAppUsage(dateIso: String): Map<String, Long>
+
+    /** Loads both usage types for a range. Sync flavors override this to read their cache once. */
+    suspend fun remoteUsageForDates(dateIsos: Set<String>): Map<String, RemoteUsageTotals> =
+        dateIsos.associateWith { date ->
+            RemoteUsageTotals(
+                apps = remoteAppUsage(date),
+                websites = remoteWebsiteUsage(date)
+            )
+        }
 }
+
+data class RemoteUsageTotals(
+    val apps: Map<String, Long> = emptyMap(),
+    val websites: Map<String, Long> = emptyMap()
+)
 
 /** Sentinel package used for the synthetic "Synced browsing" row in the usage list. */
 const val SYNCED_WEB_PACKAGE = "__curbox_synced_web__"
@@ -125,6 +139,8 @@ object NoopSyncProvider : SyncProvider {
     override suspend fun setPreferences(preferences: SyncPreferences) = unsupported()
     override suspend fun remoteWebsiteUsage(dateIso: String): Map<String, Long> = emptyMap()
     override suspend fun remoteAppUsage(dateIso: String): Map<String, Long> = emptyMap()
+    override suspend fun remoteUsageForDates(dateIsos: Set<String>): Map<String, RemoteUsageTotals> =
+        emptyMap()
 
     private fun unsupported(): Nothing = throw UnsupportedOperationException("Sync is not available in this build")
 }

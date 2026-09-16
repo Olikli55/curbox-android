@@ -71,6 +71,13 @@ class ReelBlockerViewModel(application: Application) : AndroidViewModel(applicat
         updateConfig(_reelBlockerConfig.value.copy(excludedPackages = packages.distinct()))
     }
 
+    fun setAllowInstagramReelsFromDmInbox(allow: Boolean) {
+        viewModelScope.launch {
+            dataStoreManager.updateAllowInstagramReelsFromDmInbox(allow)
+            requestReelBlockerRefresh()
+        }
+    }
+
     fun getReelTimeConfig(): ReelTimeConfig {
         return _reelBlockerConfig.value.config?.schedule ?: ReelTimeConfig()
     }

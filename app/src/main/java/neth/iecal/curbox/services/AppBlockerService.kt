@@ -127,10 +127,15 @@ class AppBlockerService : BaseBlockingService() {
             for (event in eventChannel) {
                 try {
                     websiteUsageTracker.onEvent(event)
-                    val reelComparator = reelScriptRunner.detect(event)
+                    val reelDetection = reelScriptRunner.detect(event)
+                    val reelComparator = reelDetection?.comparator
                     reelUsageTracker.onEvent(event, reelComparator)
                     reelsCountTracker.onEvent(event, reelComparator)
-                    reelBlocker.doViewBlockerCheck(event, reelComparator)
+                    reelBlocker.doViewBlockerCheck(
+                        event,
+                        reelComparator,
+                        reelDetection?.isInstagramReelOpenedFromDmInbox == true
+                    )
                     keywordBlocker.checkIfUnsupportedBrowser(event)
                     if (BuildConfig.SUPPORTS_UI_HIDER) {
                         uiHider.doUiHiderCheck(event)

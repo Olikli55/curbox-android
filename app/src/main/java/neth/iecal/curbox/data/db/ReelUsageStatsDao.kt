@@ -12,6 +12,9 @@ interface ReelUsageStatsDao {
     @Query("SELECT * FROM reel_usage_stats WHERE date = :date")
     suspend fun getForDate(date: String): List<ReelUsageStatsEntity>
 
+    @Query("SELECT * FROM reel_usage_stats WHERE date IN (:dates)")
+    suspend fun getForDates(dates: List<String>): List<ReelUsageStatsEntity>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertIfAbsent(entity: ReelUsageStatsEntity)
 

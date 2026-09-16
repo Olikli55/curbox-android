@@ -34,6 +34,10 @@ import neth.iecal.curbox.utils.DataStoreManager
 
 class SelectAppsActivity : AppCompatActivity() {
 
+    companion object {
+        const val EXTRA_ALLOW_CURBOX = "ALLOW_CURBOX"
+    }
+
     private lateinit var binding: ActivitySelectAppsBinding
     private lateinit var selectedAppList: HashSet<String>
 
@@ -88,7 +92,9 @@ class SelectAppsActivity : AppCompatActivity() {
             intent.getStringArrayListExtra("PRE_SELECTED_APPS")?.toHashSet() ?: HashSet()
 
         ignoredApps = intent.getStringArrayListExtra("IGNORED_APPS")?.toHashSet() ?: HashSet()
-        ignoredApps.add(packageName) // also remove curbox app from the list
+        if (!intent.getBooleanExtra(EXTRA_ALLOW_CURBOX, false)) {
+            ignoredApps.add(packageName)
+        }
 
         Log.d("pre-selected-apps", selectedAppList.toString())
 

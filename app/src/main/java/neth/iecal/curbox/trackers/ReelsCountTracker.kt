@@ -93,11 +93,10 @@ class ReelsCountTracker {
     }
 
     fun onEvent(event: AccessibilityEvent?, dynamicComparator: String?) {
-
-        if (event == null || ignored.contains(event.packageName.toString())) return
-
         try {
-            val pkg = event.packageName?.toString() ?: return
+            val pkg = event?.packageName?.toString() ?: return
+            if (ignored.contains(pkg)) return
+
             val data = reelData[pkg]
 
             if (data != null) {

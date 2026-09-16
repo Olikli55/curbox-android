@@ -5,6 +5,9 @@ import neth.iecal.curbox.data.models.ReelAppData
 
 class ReelAppConfig {
     companion object {
+        const val INSTAGRAM_PACKAGE = "com.instagram.android"
+        const val INSTAGRAM_DM_REEL_MARKER = "\u001Fcurbox:instagram_dm_inbox:\u001F"
+
         private fun isOnScreenFunction() = """
             fn isOnScreen(node) {
                 if node == null or not node.visible { return false }
@@ -20,11 +23,17 @@ class ReelAppConfig {
             controls = find(id="$packageName:id/clips_ufi_component")
             if not isOnScreen(viewer) or not isOnScreen(controls) { return null }
 
+            dmReplyBar = find(id="$packageName:id/reply_bar_container_scroll_view")
+            openedFromDmInbox = isOnScreen(dmReplyBar)
+
             comparator = ""
             caption = find(id="$packageName:id/clips_captions_component")
             author = find(id="$packageName:id/clips_author_username")
             if caption != null { comparator = comparator + caption.subtreeText(32, 20000) }
             if author != null { comparator = comparator + author.subtreeText(32, 20000) }
+            if openedFromDmInbox {
+                return "$INSTAGRAM_DM_REEL_MARKER" + comparator
+            }
             return comparator
         """.trimIndent()
 
@@ -40,8 +49,8 @@ class ReelAppConfig {
         """.trimIndent()
 
         val reelData: Map<String, ReelAppData> = mapOf(
-            "com.instagram.android" to ReelAppData(
-                scriptSource = instagramScript("com.instagram.android")
+            INSTAGRAM_PACKAGE to ReelAppData(
+                scriptSource = instagramScript(INSTAGRAM_PACKAGE)
             ),
 
             "com.myinsta.android" to ReelAppData(

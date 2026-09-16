@@ -60,8 +60,8 @@ class ReelCounterFragment : Fragment() {
         binding.btnPrevWeek.setOnClickListener { viewModel.goToPreviousWeek() }
         binding.btnNextWeek.setOnClickListener { viewModel.goToNextWeek() }
 
-        binding.weeklyBarGraph.setOnDaySelectedListener { dayData ->
-            val index = viewModel.weeklyData.value?.indexOf(dayData) ?: return@setOnDaySelectedListener
+        binding.weeklyBarGraph.setOnBarSelectedListener { dayData ->
+            val index = viewModel.weeklyData.value?.indexOf(dayData) ?: return@setOnBarSelectedListener
             if (index != -1) viewModel.selectDay(index)
         }
 
